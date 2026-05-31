@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>dumbtipe · tu lenguaje</title>
+<title>dumbtype · tu lenguaje</title>
 <style>
   :root {
     --bg: #14111d; --panel: #1d1929; --line: #2c2740;
@@ -64,13 +64,12 @@
     font-size: 12px; color: var(--dim); display: flex; gap: 16px; align-items: center;
   }
   footer .ok { color: var(--ok); }
-  #estilos-app {}
 </style>
 <style id="estilos-app"></style>
 </head>
 <body>
   <header>
-    <h1>dumbtipe<span class="dot">.</span></h1>
+    <h1>dumbtype<span class="dot">.</span></h1>
     <span class="sub">escribe en español → hazlo una app</span>
     <div class="tools">
       <select id="ejemplos" title="Cargar un ejemplo">
@@ -103,12 +102,12 @@
   <footer>
     <span id="conteo">0 elementos</span>
     <span id="guardado" class="ok">guardado ✓</span>
-    <span style="margin-left:auto; opacity:.6">dumbtipe v2</span>
+    <span style="margin-left:auto; opacity:.6">dumbtype v3</span>
   </footer>
 
 <script>
 /* ============================================================
-   dumbtipe — un mini-lenguaje que se vuelve HTML
+   dumbtype — un mini-lenguaje que se vuelve HTML
    ============================================================ */
 
 /* --- CSS de la "app" generada (compartido entre preview y export) --- */
@@ -124,7 +123,7 @@ const ESTILOS_APP = `
   .el-area { min-height: 90px; resize: vertical; width: 100%; max-width: 420px; }
   .el-imagen { max-width: 320px; border-radius: 16px; display:block; }
   .el-video { width: 360px; max-width: 100%; aspect-ratio: 16/9; border-radius: 14px; border: none; }
-  .el-enlace { color: #7c5cff; font-size: 17px; font-weight: 600; text-decoration: underline; }
+  .el-enlace { color: #7c5cff; font-size: 17px; font-weight: 600; text-decoration: underline; cursor: pointer; }
   .el-separador { width: 100%; max-width: 560px; border: none; border-top: 2px solid #e0d8f5; }
   .el-lista { font-size: 17px; line-height: 1.8; padding-left: 22px; }
   .el-emoji { font-size: 56px; line-height: 1; }
@@ -165,22 +164,27 @@ const ESTILOS_APP = `
   .mod-sombra { box-shadow: 0 12px 32px rgba(124,92,255,.32); }
   .mod-ancho { width: 100%; max-width: 560px; }
 
-  .dumb-toast { position: fixed; bottom: 26px; left: 50%; transform: translateX(-50%);
-    background: #1a1626; color: #fff; padding: 14px 22px; border-radius: 12px;
+  #dumb-toasts { position: fixed; bottom: 26px; left: 50%; transform: translateX(-50%);
+    display: flex; flex-direction: column; gap: 8px; align-items: center; z-index: 9999; }
+  .dumb-toast { background: #1a1626; color: #fff; padding: 14px 22px; border-radius: 12px;
     font-family: system-ui, sans-serif; font-size: 15px; box-shadow: 0 10px 30px rgba(0,0,0,.35);
-    z-index: 9999; animation: dumbin .25s ease; }
-  @keyframes dumbin { from { opacity: 0; transform: translate(-50%, 16px); } }
+    animation: dumbin .25s ease; }
+  @keyframes dumbin { from { opacity: 0; transform: translateY(16px); } }
 `;
 
 /* --- Diccionario del lenguaje --- */
 // contenedores aceptan hijos (líneas indentadas debajo)
 const CONTENEDORES = new Set(['tarjeta', 'fila', 'columna', 'centro']);
+// solo estos elementos pueden llevar acciones / funciones
+const INTERACTIVOS = new Set(['boton', 'enlace']);
 
 const MODIFICADORES = new Set([
   'grande','gigante','chico','pequeño',
   'rojo','azul','verde','amarillo','naranja','rosa','morado','gris','negro',
   'redondo','negrita','cursiva','subrayado','centrado','sombra','ancho'
 ]);
+
+let FUNCIONES = {}; // { nombre: [ {accion, valor}, ... ] }
 
 function esc(s) { return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function attr(s) { return esc(s).replace(/"/g,'&quot;'); }
@@ -190,7 +194,7 @@ function idYoutube(url) {
   return m ? m[1] : '';
 }
 
-/* cómo se dibuja cada elemento. n = nodo, c = clases de modificadores, dentro = hijos ya dibujados */
+/* cómo se dibuja cada elemento. n = nodo, c = clases, dentro = hijos dibujados */
 const DIBUJAR = {
   titulo:    (n,c) => `<div class="el-titulo ${c}">${esc(n.texto) || 'Título'}</div>`,
   subtitulo: (n,c) => `<div class="el-subtitulo ${c}">${esc(n.texto) || 'Subtítulo'}</div>`,
@@ -199,7 +203,7 @@ const DIBUJAR = {
   campo:     (n,c) => `<input class="el-campo ${c}" placeholder="${attr(n.texto)}">`,
   area:      (n,c) => `<textarea class="el-area ${c}" placeholder="${attr(n.texto)}"></textarea>`,
   imagen:    (n,c) => `<img class="el-imagen ${c}" src="${attr(n.texto)}" alt="imagen">`,
-  enlace:    (n,c) => `<a class="el-enlace ${c}" href="${n.accion==='abre' ? attr(n.valor) : '#'}" ${n.accion==='abre'?'target="_blank"':''}>${esc(n.texto) || 'enlace'}</a>`,
+  enlace:    (n,c) => `<a class="el-enlace ${c}" href="${n.accion==='abre' ? attr(n.valor) : '#'}" ${n.accion==='abre'?'target="_blank"':''} ${accionAttrs(n)}>${esc(n.texto) || 'enlace'}</a>`,
   separador: (n,c) => `<hr class="el-separador ${c}">`,
   espacio:   (n,c) => `<div class="el-espacio ${c}"></div>`,
   emoji:     (n,c) => `<div class="el-emoji ${c}">${esc(n.texto) || '⭐'}</div>`,
@@ -211,7 +215,7 @@ const DIBUJAR = {
       ? `<iframe class="el-video ${c}" src="https://www.youtube.com/embed/${yt}" allowfullscreen></iframe>`
       : `<video class="el-video ${c}" src="${attr(url)}" controls></video>`;
   },
-  // contenedores: usan "dentro"
+  // contenedores
   tarjeta:  (n,c,dentro) => `<div class="el-tarjeta ${c}">${dentro}</div>`,
   fila:     (n,c,dentro) => `<div class="el-fila ${c}">${dentro}</div>`,
   columna:  (n,c,dentro) => `<div class="el-columna ${c}">${dentro}</div>`,
@@ -219,44 +223,87 @@ const DIBUJAR = {
 };
 
 function accionAttrs(n) {
-  if (!n.accion) return '';
-  return `data-accion="${attr(n.accion)}" data-valor="${attr(n.valor)}"`;
+  if (n.fn) return `data-fn="${attr(n.fn)}"`;
+  if (n.accion) return `data-accion="${attr(n.accion)}" data-valor="${attr(n.valor)}"`;
+  return '';
 }
 
-/* --- Parser: convierte el texto en un árbol según la indentación --- */
+/* --- Parser: texto → árbol + funciones (según la indentación) --- */
 function parsear(codigo) {
   const lineas = codigo.replace(/\t/g, '  ').split('\n');
   const raiz = { tipo: 'raiz', hijos: [] };
+  const funciones = {};
   const pila = [{ nodo: raiz, indent: -1 }];
+  let fnActual = null; // dentro de una definición de función
 
   for (const linea of lineas) {
     if (!linea.trim()) continue;
     const indent = linea.match(/^ */)[0].length;
-    while (pila.length > 1 && indent <= pila[pila.length - 1].indent) pila.pop();
+    const texto = linea.trim();
 
-    const nodo = crearNodo(linea.trim());
+    // ¿salimos de la función que estábamos definiendo?
+    if (fnActual && indent <= fnActual.indent) fnActual = null;
+
+    // línea indentada dentro de una función = un paso
+    if (fnActual) { fnActual.pasos.push(parsearPaso(texto)); continue; }
+
+    // definición de función:  funcion saludar()
+    const def = texto.match(/^funci[oó]n\s+([a-zA-Z_]\w*)\s*\(\)/i);
+    if (def) {
+      funciones[def[1]] = [];
+      fnActual = { indent, pasos: funciones[def[1]] };
+      continue;
+    }
+
+    // elemento normal
+    while (pila.length > 1 && indent <= pila[pila.length - 1].indent) pila.pop();
+    const nodo = crearNodo(texto);
     pila[pila.length - 1].nodo.hijos.push(nodo);
     if (CONTENEDORES.has(nodo.tipo)) pila.push({ nodo, indent });
   }
-  return raiz;
+  return { raiz, funciones };
+}
+
+function parsearPaso(texto) {
+  const p = texto.split(/\s+/);
+  return { accion: p[0].toLowerCase(), valor: p.slice(1).join(' ') };
 }
 
 function crearNodo(linea) {
-  let accion = null, valor = null, cuerpo = linea;
-  const flecha = linea.indexOf('->');
-  if (flecha !== -1) {
-    cuerpo = linea.slice(0, flecha).trim();
-    const a = linea.slice(flecha + 2).trim().split(/\s+/);
-    accion = a[0].toLowerCase();
-    valor = a.slice(1).join(' ');
+  const tipo = (linea.split(/\s+/)[0] || '').toLowerCase();
+  let accion = null, valor = null, fn = null, cuerpo = linea;
+
+  // solo botones y enlaces interpretan acciones / funciones
+  if (INTERACTIVOS.has(tipo)) {
+    // atajo de un paso:  -> accion valor
+    const flecha = cuerpo.indexOf('->');
+    if (flecha !== -1) {
+      const a = cuerpo.slice(flecha + 2).trim().split(/\s+/);
+      accion = a[0].toLowerCase(); valor = a.slice(1).join(' ');
+      cuerpo = cuerpo.slice(0, flecha).trim();
+    }
+    // llamada a función:  saludar()
+    const llama = cuerpo.match(/([a-zA-Z_]\w*)\s*\(\)/);
+    if (llama) {
+      fn = llama[1];
+      cuerpo = cuerpo.replace(llama[0], '').trim();
+    } else {
+      // acción inline entre paréntesis:  (mensaje Hola)
+      const inl = cuerpo.match(/\(([^)]+)\)/);
+      if (inl) {
+        const a = inl[1].trim().split(/\s+/);
+        accion = a[0].toLowerCase(); valor = a.slice(1).join(' ');
+        cuerpo = cuerpo.replace(inl[0], '').trim();
+      }
+    }
   }
-  const palabras = cuerpo.split(/\s+/);
-  const tipo = palabras[0].toLowerCase();
+
+  const palabras = cuerpo.split(/\s+/).filter(Boolean);
   const mods = [], contenido = [];
   for (const p of palabras.slice(1)) {
     (MODIFICADORES.has(p.toLowerCase()) ? mods : contenido).push(p);
   }
-  return { tipo, mods, texto: contenido.join(' '), accion, valor, hijos: [] };
+  return { tipo, mods, texto: contenido.join(' '), accion, valor, fn, hijos: [] };
 }
 
 /* --- Render: árbol → HTML --- */
@@ -275,29 +322,43 @@ function contar(nodo) {
   return n;
 }
 
-/* --- Acciones (qué pasa al tocar un botón) --- */
+/* --- Acciones (las cosas que un botón puede hacer) --- */
 function ejecutarAccion(accion, valor) {
   if (accion === 'alerta') alert(valor);
   else if (accion === 'abre') window.open(valor, '_blank');
   else if (accion === 'mensaje') mostrarToast(valor);
 }
+function ejecutarFuncion(nombre) {
+  var pasos = (typeof FUNCIONES !== 'undefined' && FUNCIONES[nombre]) || [];
+  pasos.forEach(function (p) { ejecutarAccion(p.accion, p.valor); });
+}
 function mostrarToast(txt) {
+  var cont = document.getElementById('dumb-toasts');
+  if (!cont) { cont = document.createElement('div'); cont.id = 'dumb-toasts'; document.body.appendChild(cont); }
   var t = document.createElement('div');
   t.className = 'dumb-toast';
   t.textContent = txt;
-  document.body.appendChild(t);
+  cont.appendChild(t);
   setTimeout(function () { t.remove(); }, 2600);
+}
+function manejarClick(e) {
+  var b = e.target.closest('[data-fn],[data-accion]');
+  if (!b) return;
+  e.preventDefault();
+  if (b.getAttribute('data-fn')) ejecutarFuncion(b.getAttribute('data-fn'));
+  else ejecutarAccion(b.getAttribute('data-accion'), b.getAttribute('data-valor'));
 }
 
 /* --- Exportar: genera un archivo .html que funciona solo --- */
 function generarHTMLApp() {
-  const cuerpo = dibujar(parsear(document.getElementById('code').value));
+  const { raiz, funciones } = parsear(document.getElementById('code').value);
+  const cuerpo = dibujar(raiz);
   return `<!DOCTYPE html>
 <html lang="es">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Mi app · hecha con dumbtipe</title>
+<title>Mi app · hecha con dumbtype</title>
 <style>
   * { box-sizing: border-box; }
   body { font-family: -apple-system, system-ui, sans-serif; margin: 0; background: #faf8ff; color: #1a1626; }
@@ -310,12 +371,12 @@ ${ESTILOS_APP}
 ${cuerpo}
 </div>
 <script>
+var FUNCIONES = ${JSON.stringify(funciones).replace(/</g, '\\u003c')};
 ${ejecutarAccion.toString()}
+${ejecutarFuncion.toString()}
 ${mostrarToast.toString()}
-document.getElementById('app').addEventListener('click', function (e) {
-  var b = e.target.closest('[data-accion]');
-  if (b) ejecutarAccion(b.getAttribute('data-accion'), b.getAttribute('data-valor'));
-});
+${manejarClick.toString()}
+document.getElementById('app').addEventListener('click', manejarClick);
 <\/script>
 </body>
 </html>`;
@@ -342,27 +403,35 @@ async function copiarHTML() {
 
 /* --- Plantillas de ejemplo --- */
 const PLANTILLAS = {
-  hola: `titulo gigante dumbtipe
+  hola: `titulo gigante dumbtype
 subtitulo tu lenguaje para hacer apps escribiendo español
 
-texto Cambia las palabras de la izquierda y mira qué pasa aquí.
+texto Cambia las palabras de la izquierda y mira qué pasa.
+
+funcion saludar()
+  mensaje ¡Hola! 👋
+  mensaje Una función puede hacer varios pasos
 
 tarjeta
   titulo Bienvenido
-  texto Una tarjeta agrupa cosas adentro (fíjate en la sangría).
-  boton verde Entrar -> mensaje ¡Funciona!
+  texto Tócame: este botón llama a una función.
+  boton grande verde Saludar saludar()
 
 fila
-  boton redondo morado Saludar -> alerta Hola 👋
-  boton chico rojo Salir -> mensaje Adiós
+  boton redondo morado Atajo -> mensaje Esto es un atajo de un paso
+  boton chico azul Inline (mensaje Acción entre paréntesis)
 
 lista Manzana, Pera, Uva, Plátano`,
 
-  landing: `centro
+  landing: `funcion empezar()
+  mensaje ¡Bienvenido a bordo! 🚀
+  mensaje Te enviamos un correo de bienvenida
+
+centro
   emoji gigante 🚀
   titulo gigante Lanza tu idea
   subtitulo La forma más fácil de hacer una página
-  boton gigante verde Empezar gratis -> mensaje ¡Bienvenido a bordo!
+  boton gigante verde Empezar gratis empezar()
 
 separador
 
@@ -384,15 +453,19 @@ campo Tu nombre
 campo Tu correo
 area Tu mensaje
 
-boton ancho verde Enviar -> mensaje ¡Gracias! Te contactamos pronto.`,
+boton ancho verde Enviar (mensaje ¡Gracias! Te contactamos pronto.)`,
 
-  perfil: `centro
+  perfil: `funcion seguir()
+  mensaje Ahora sigues a Adrián ✓
+  mensaje Te avisaremos cuando publique
+
+centro
   emoji gigante 🦊
   titulo Adrián
   subtitulo Constructor de cosas
   texto Hago apps, robots y ahora lenguajes de programación.
   fila
-    boton azul redondo Seguir -> mensaje Ahora sigues a Adrián
+    boton azul redondo Seguir seguir()
     boton redondo Mensaje -> alerta ¡Escríbeme!`,
 };
 
@@ -402,23 +475,21 @@ const $render = document.getElementById('render');
 const $htmlout = document.getElementById('htmlout');
 
 function actualizar() {
-  const arbol = parsear($code.value);
-  $render.innerHTML = dibujar(arbol);
+  const { raiz, funciones } = parsear($code.value);
+  FUNCIONES = funciones;
+  $render.innerHTML = dibujar(raiz);
   $htmlout.textContent = generarHTMLApp();
-  document.getElementById('conteo').textContent = contar(arbol) + ' elementos';
-  localStorage.setItem('dumbtipe', $code.value);
-  const g = document.getElementById('guardado');
-  g.textContent = 'guardado ✓';
+  const nFn = Object.keys(funciones).length;
+  document.getElementById('conteo').textContent =
+    contar(raiz) + ' elementos' + (nFn ? ` · ${nFn} ${nFn === 1 ? 'función' : 'funciones'}` : '');
+  localStorage.setItem('dumbtype', $code.value);
 }
 
 // inyectar estilos de la app en el preview
 document.getElementById('estilos-app').textContent = ESTILOS_APP;
 
-// acciones de botones dentro del preview (delegación)
-$render.addEventListener('click', function (e) {
-  const b = e.target.closest('[data-accion]');
-  if (b) ejecutarAccion(b.getAttribute('data-accion'), b.getAttribute('data-valor'));
-});
+// acciones de botones/enlaces dentro del preview (delegación)
+$render.addEventListener('click', manejarClick);
 
 // pestañas Resultado / HTML
 document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
@@ -431,10 +502,7 @@ document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () =>
 
 // ejemplos
 document.getElementById('ejemplos').addEventListener('change', e => {
-  if (PLANTILLAS[e.target.value]) {
-    $code.value = PLANTILLAS[e.target.value];
-    actualizar();
-  }
+  if (PLANTILLAS[e.target.value]) { $code.value = PLANTILLAS[e.target.value]; actualizar(); }
   e.target.value = '';
 });
 
@@ -442,8 +510,8 @@ document.getElementById('exportar').addEventListener('click', descargar);
 document.getElementById('copiar').addEventListener('click', copiarHTML);
 $code.addEventListener('input', actualizar);
 
-// arrancar con lo guardado, o con el ejemplo "hola"
-$code.value = localStorage.getItem('dumbtipe') || PLANTILLAS.hola;
+// arrancar con lo guardado (migra del nombre viejo si hace falta), o con el ejemplo "hola"
+$code.value = localStorage.getItem('dumbtype') || localStorage.getItem('dumbtipe') || PLANTILLAS.hola;
 actualizar();
 </script>
 </body>
